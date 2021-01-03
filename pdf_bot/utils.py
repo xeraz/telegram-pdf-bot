@@ -1,14 +1,18 @@
 import os
-import secrets
 import tempfile
 
 from PyPDF2 import PdfFileReader, PdfFileWriter
 from PyPDF2.utils import PdfReadError
-from telegram import ChatAction
-from telegram import ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    ChatAction,
+    Update,
+    ReplyKeyboardRemove,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 from telegram.constants import MAX_FILESIZE_DOWNLOAD, MAX_FILESIZE_UPLOAD
-from telegram.ext import ConversationHandler
-from telegram.ext.dispatcher import run_async
+from telegram.ext import ConversationHandler, CallbackContext
+from threading import Lock
 
 from pdf_bot.constants import (
     PDF_OK,
@@ -22,12 +26,7 @@ from pdf_bot.language import set_lang
 from pdf_bot.stats import update_stats
 
 
-@run_async
-def cancel_with_async(update, context):
-    return cancel_without_async(update, context)
-
-
-def cancel_without_async(update, context):
+def cancel(update, context):
     _ = set_lang(update, context)
     update.effective_message.reply_text(
         _("Action cancelled"), reply_markup=ReplyKeyboardRemove()
@@ -69,7 +68,9 @@ def check_pdf(update, context, send_msg=True):
     return pdf_status
 
 
-def check_user_data(update, context, key):
+def check_user_data(
+    update: Update, context: CallbackContext, key: str, lock: Lock = None
+) -> bool:
     """
     Check if the specified key exists in user_data
     Args:
@@ -81,10 +82,16 @@ def check_user_data(update, context, key):
         The boolean indicating if the key exists or not
     """
     data_ok = True
+    if lock is not None:
+        lock.acquire()
+
     if key not in context.user_data:
         data_ok = False
         _ = set_lang(update, context)
         update.effective_message.reply_text(_("Something went wrong, start over again"))
+
+    if lock is not None:
+        lock.release()
 
     return data_ok
 
@@ -284,16 +291,13 @@ def get_support_markup(update, context):
     Returns:
         The reply markup object
     """
-    if secrets.randbelow(2):
-        _ = set_lang(update, context)
-        keyboard = [
-            [
-                InlineKeyboardButton(_("Join Channel"), f"https://t.me/{CHANNEL_NAME}"),
-                InlineKeyboardButton(_("Support PDF Bot"), callback_data=PAYMENT),
-            ]
+    _ = set_lang(update, context)
+    keyboard = [
+        [
+            InlineKeyboardButton(_("Join Channel"), f"https://t.me/{CHANNEL_NAME}"),
+            InlineKeyboardButton(_("Support PDF Bot"), callback_data=PAYMENT),
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-    else:
-        reply_markup = None
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
     return reply_markup
